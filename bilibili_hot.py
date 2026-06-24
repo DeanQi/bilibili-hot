@@ -121,11 +121,30 @@ def send_telegram(text: str):
         print(f"[ERROR] Telegram 推送异常: {e}")
 
 
+def build_wecom_text(videos: list, rid_name: str) -> str:
+    """构建企业微信 text 消息，手机端友好排版（前15条）"""
+    bj_tz = timezone(timedelta(hours=8))
+    now = datetime.now(bj_tz).strftime("%m-%d %H:%M")
+
+    lines = [f"B站{rid_name}热门榜 TOP15  |  {now}", ""]
+    for i, v in enumerate(videos[:15], 1):
+        title = v.get("title", "")
+        up_name = v.get("owner", {}).get("name", "未知")
+        stat = v.get("stat", {})
+        view = format_number(stat.get("view", 0))
+        like = format_number(stat.get("like", 0))
+        lines.append(f"{i:2d}. {title}")
+        lines.append(f"    UP: {up_name}    ▶{view}    ❤{like}")
+        lines.append("")
+    lines.append(f"数据来源: Bilibili 热门榜")
+    return "\n".join(lines)
+
+
 def send_wecom(text: str):
     """推送到企业微信机器人"""
     if not WECOM_WEBHOOK:
         return
-    payload = {"msgtype": "markdown", "markdown": {"content": text}}
+    payload = {"msgtype": "text", "text": {"content": text}}
     try:
         resp = requests.post(WECOM_WEBHOOK, json=payload, timeout=15)
         if resp.status_code == 200 and resp.json().get("errcode") == 0:
@@ -230,8 +249,8 @@ def main():
         send_feishu(feishu_payload)
 
     if WECOM_WEBHOOK:
-        top15 = generate_report(videos[:15], rid_name)
-        send_wecom(top15)
+        wecom_text = build_wecom_text(videos, rid_name)
+        send_wecom(wecom_text)
 
     if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
         top20 = generate_report(videos[:20], rid_name)
