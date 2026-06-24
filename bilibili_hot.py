@@ -31,38 +31,51 @@ HEADERS = {
     "Origin": "https://www.bilibili.com",
 }
 
-# 分区 ID 映射
-RID_MAP = {
-    "all": 0,
-    "animation": 1,
-    "music": 3,
-    "game": 4,
-    "entertainment": 5,
-    "tv": 11,
-    "tech": 188,
-    "life": 160,
-    "fashion": 155,
-    "sports": 234,
-    "documentary": 177,
-    "movie": 23,
-}
+# 目标分区：科技 + 知识（校园学习 rid=208 排行榜 API 不支持，已移除）
+TARGET_ZONES = [
+    (188, "科技"),
+    (36,  "知识"),
+]
+ZONE_LABEL = "科技·知识"
 
 
-def fetch_ranking(rid: int = 0, top_n: int = 100) -> list:
-    """获取 B站热门视频榜单"""
+def fetch_ranking(rid: int, top_n: int = 20) -> list:
+    """获取指定分区的 B站热门视频榜单"""
     params = {"rid": rid, "type": "all"}
     try:
         resp = requests.get(BILIBILI_API, params=params, headers=HEADERS, timeout=20)
         resp.raise_for_status()
         data = resp.json()
         if data.get("code") != 0:
-            print(f"[ERROR] API 返回异常: {data.get('message', '未知错误')}")
+            print(f"[ERROR] rid={rid} API 返回异常: {data.get('message', '未知错误')}")
             return []
         video_list = data.get("data", {}).get("list", [])
         return video_list[:top_n]
     except requests.RequestException as e:
-        print(f"[ERROR] 请求失败: {e}")
+        print(f"[ERROR] rid={rid} 请求失败: {e}")
         return []
+
+
+def fetch_multi_zone(top_n: int = 15) -> list:
+    """抓取多个分区，合并去重后按播放量排序取 TOP N"""
+    seen = set()
+    merged = []
+
+    for rid, name in TARGET_ZONES:
+        print(f"[INFO] 正在获取 {name}(rid={rid}) 分区...")
+        videos = fetch_ranking(rid, top_n=20)
+        for v in videos:
+            bvid = v.get("bvid", "")
+            if bvid and bvid not in seen:
+                seen.add(bvid)
+                merged.append(v)
+        print(f"[INFO] {name} 分区获取 {len(videos)} 条，累计 {len(merged)} 条")
+
+    # 按播放量降序排序
+    merged.sort(key=lambda v: v.get("stat", {}).get("view", 0), reverse=True)
+    result = merged[:top_n]
+    print(f"[INFO] 合并去重后共 {len(merged)} 条，取播放量 TOP{len(result)}")
+    return result
 
 
 def format_number(n: int) -> str:
@@ -216,24 +229,19 @@ def send_feishu(payload: dict):
 
 
 def main():
-    # 解析命令行参数：支持指定分区
-    rid_key = sys.argv[1] if len(sys.argv) > 1 else "all"
-    rid = RID_MAP.get(rid_key, 0)
-    rid_name = {"all": "全站"}.get(rid_key, rid_key)
-
-    print(f"[INFO] 正在获取 B站{rid_name}热门视频...")
-    videos = fetch_ranking(rid=rid, top_n=100)
+    print(f"[INFO] 开始抓取 {ZONE_LABEL} 热门视频...")
+    videos = fetch_multi_zone(top_n=15)
 
     if not videos:
         print("[ERROR] 未获取到视频数据，退出")
         sys.exit(1)
 
     print(f"[INFO] 获取到 {len(videos)} 条视频，正在生成报告...")
-    report = generate_report(videos, rid_name)
+    report = generate_report(videos, ZONE_LABEL)
 
     # 保存报告
     date_str = datetime.now(timezone(timedelta(hours=8))).strftime("%Y%m%d")
-    filename = f"bilibili_hot_{rid_key}_{date_str}.md"
+    filename = f"bilibili_hot_{date_str}.md"
     filepath = os.path.join(OUTPUT_DIR, filename)
     with open(filepath, "w", encoding="utf-8") as f:
         f.write(report)
@@ -247,15 +255,15 @@ def main():
 
     # 可选推送
     if FEISHU_WEBHOOK:
-        feishu_payload = build_feishu_card(videos, rid_name)
+        feishu_payload = build_feishu_card(videos, ZONE_LABEL)
         send_feishu(feishu_payload)
 
     if WECOM_WEBHOOK:
-        wecom_text = build_wecom_md(videos, rid_name)
+        wecom_text = build_wecom_md(videos, ZONE_LABEL)
         send_wecom(wecom_text)
 
     if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
-        top20 = generate_report(videos[:20], rid_name)
+        top20 = generate_report(videos, ZONE_LABEL)
         send_telegram(top20)
 
 
