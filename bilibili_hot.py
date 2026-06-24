@@ -136,17 +136,12 @@ def send_wecom(text: str):
         print(f"[ERROR] 企业微信推送异常: {e}")
 
 
-def build_feishu_post(videos: list, rid_name: str) -> dict:
-    """构建飞书 post 富文本消息体（前15条）"""
+def build_feishu_card(videos: list, rid_name: str) -> dict:
+    """构建飞书 interactive 卡片消息体（前15条）"""
     bj_tz = timezone(timedelta(hours=8))
     now = datetime.now(bj_tz).strftime("%Y-%m-%d %H:%M")
 
-    content_lines = [
-        [
-            {"tag": "text", "text": f"B站{rid_name}热门榜 TOP15  |  {now}\n"}
-        ]
-    ]
-
+    lines = []
     for i, v in enumerate(videos[:15], 1):
         title = v.get("title", "")
         bvid = v.get("bvid", "")
@@ -154,23 +149,29 @@ def build_feishu_post(videos: list, rid_name: str) -> dict:
         stat = v.get("stat", {})
         view = format_number(stat.get("view", 0))
         like = format_number(stat.get("like", 0))
+        lines.append(
+            f"{i}. [{title}](https://www.bilibili.com/video/{bvid})  **{up_name}**  ▶{view}  👍{like}"
+        )
 
-        line = [
-            {"tag": "text", "text": f"{i}. "},
-            {"tag": "a", "text": title, "href": f"https://www.bilibili.com/video/{bvid}"},
-            {"tag": "text", "text": f"  {up_name}  ▶{view}  👍{like}\n"},
-        ]
-        content_lines.append(line)
+    text_body = "\n".join(lines)
 
     return {
-        "msg_type": "post",
-        "content": {
-            "post": {
-                "zh_cn": {
-                    "title": f"B站{rid_name}热门视频 TOP15",
-                    "content": content_lines,
-                }
-            }
+        "msg_type": "interactive",
+        "card": {
+            "header": {
+                "title": {"tag": "plain_text", "content": f"B站{rid_name}热门视频 TOP15"},
+                "template": "blue",
+            },
+            "elements": [
+                {"tag": "div", "text": {"tag": "lark_md", "content": text_body}},
+                {"tag": "hr"},
+                {
+                    "tag": "note",
+                    "elements": [
+                        {"tag": "plain_text", "content": f"数据来源: Bilibili 热门榜 | 更新时间: {now}"}
+                    ],
+                },
+            ],
         },
     }
 
@@ -180,7 +181,10 @@ def send_feishu(payload: dict):
     if not FEISHU_WEBHOOK:
         return
     try:
-        resp = requests.post(FEISHU_WEBHOOK, json=payload, timeout=15, headers={"Content-Type": "application/json"})
+        resp = requests.post(
+            FEISHU_WEBHOOK, json=payload, timeout=15,
+            headers={"Content-Type": "application/json"}
+        )
         result = resp.json()
         if resp.status_code == 200 and result.get("code") == 0:
             print("[OK] 飞书推送成功")
@@ -222,7 +226,7 @@ def main():
 
     # 可选推送
     if FEISHU_WEBHOOK:
-        feishu_payload = build_feishu_post(videos, rid_name)
+        feishu_payload = build_feishu_card(videos, rid_name)
         send_feishu(feishu_payload)
 
     if WECOM_WEBHOOK:
