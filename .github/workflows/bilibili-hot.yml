@@ -1,0 +1,34 @@
+name: Bilibili Hot Videos
+
+on:
+  schedule:
+    # 每天北京时间 9:00 和 21:00 执行（UTC+8 → UTC+1）
+    - cron: "0 1,13 * * *"
+  workflow_dispatch:  # 支持手动触发
+
+jobs:
+  fetch-hot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run Bilibili Hot Script
+        env:
+          FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
+          WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
+        run: python bilibili_hot.py
+
+      - name: Upload Report Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bilibili-hot-report
+          path: bilibili_hot_*.md
