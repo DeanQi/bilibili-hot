@@ -40,20 +40,24 @@ ZONE_LABEL = "科技·知识"
 
 
 def fetch_ranking(rid: int, top_n: int = 20) -> list:
-    """获取指定分区的 B站热门视频榜单"""
+    """获取指定分区的 B站热门视频榜单，带重试"""
     params = {"rid": rid, "type": "all"}
-    try:
-        resp = requests.get(BILIBILI_API, params=params, headers=HEADERS, timeout=20)
-        resp.raise_for_status()
-        data = resp.json()
-        if data.get("code") != 0:
-            print(f"[ERROR] rid={rid} API 返回异常: {data.get('message', '未知错误')}")
-            return []
-        video_list = data.get("data", {}).get("list", [])
-        return video_list[:top_n]
-    except requests.RequestException as e:
-        print(f"[ERROR] rid={rid} 请求失败: {e}")
-        return []
+    for attempt in range(3):
+        try:
+            resp = requests.get(BILIBILI_API, params=params, headers=HEADERS, timeout=15)
+            resp.raise_for_status()
+            data = resp.json()
+            if data.get("code") != 0:
+                print(f"[ERROR] rid={rid} API 返回异常: {data.get('message', '未知错误')}")
+                return []
+            video_list = data.get("data", {}).get("list", [])
+            return video_list[:top_n]
+        except requests.RequestException as e:
+            print(f"[WARN] rid={rid} 请求失败(第{attempt+1}次): {e}")
+            if attempt < 2:
+                import time
+                time.sleep(2 * (attempt + 1))
+    return []
 
 
 def fetch_multi_zone(top_n: int = 15) -> list:
@@ -233,8 +237,8 @@ def main():
     videos = fetch_multi_zone(top_n=15)
 
     if not videos:
-        print("[ERROR] 未获取到视频数据，退出")
-        sys.exit(1)
+        print("[ERROR] 未获取到视频数据，可能 B站 API 暂时不可用，跳过本次执行")
+        sys.exit(0)
 
     print(f"[INFO] 获取到 {len(videos)} 条视频，正在生成报告...")
     report = generate_report(videos, ZONE_LABEL)
